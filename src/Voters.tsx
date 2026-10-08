@@ -54,7 +54,7 @@ export function Voters({
   const unit = store.units.find((u) => u.id === unitId)!,
     election = store.elections.find((e) => e.id === unit.electionId)!,
     state = stateOf(election, unit, store.now);
-  const manage = canManage(role, unit.electionId),
+  const manage = canManage(role, unit.electionId, store),
     editable = manage && !["closed", "announced", "cancelled"].includes(state);
   if (["live_results_viewer", "helpdesk"].includes(role))
     return <Empty>บทบาทนี้ไม่เห็นสถานะรายบุคคล</Empty>;
@@ -69,7 +69,8 @@ export function Voters({
             {store.units
               .filter(
                 (u) =>
-                  canManage(role, u.electionId) || role === "results_certifier",
+                  canManage(role, u.electionId, store) ||
+                  role === "results_certifier",
               )
               .map((u) => (
                 <option key={u.id} value={u.id}>

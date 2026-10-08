@@ -10,6 +10,7 @@ import {
   type Store,
   type Unit,
 } from "./model";
+import { text } from "./text";
 const KEY = "election-demo-v1";
 export const mockRepository = {
   read(): Store {
@@ -78,9 +79,20 @@ export const mockRepository = {
       return outcome;
     });
   },
-  saveElection(value: Election, expectedVersion?: number, reason = "") {
+  saveElection(
+    value: Election,
+    role: Role,
+    expectedVersion?: number,
+    reason = "",
+  ) {
     return this.update((s) => {
       const current = s.elections.find((e) => e.id === value.id);
+      if (
+        current
+          ? !canManage(role, value.id, s)
+          : !["super_admin", "election_admin"].includes(role)
+      )
+        throw new Error(text.cancelScopeDenied);
       if (current && current.version !== expectedVersion)
         throw new Error("ข้อมูลถูกแก้จากอีกหน้าต่าง กรุณาโหลดใหม่");
       if (
@@ -136,8 +148,20 @@ export const mockRepository = {
         );
       if (current)
         Object.assign(current, value, { version: current.version + 1 });
-      else s.elections.push(value);
+      else s.elections.push({ ...value, createdByRole: role });
       this.audit(s, "บันทึกการเลือกตั้ง", value.id, reason);
+    });
+  },
+  cancelUnit(unitId: string, role: Role, reason: string) {
+    return this.update((s) => {
+      const unit = s.units.find((u) => u.id === unitId);
+      if (!unit) throw new Error("ไม่พบหน่วยลงคะแนน");
+      const election = s.elections.find((e) => e.id === unit.electionId)!;
+      const blocked = cancellationBlock(role, election, unit, s);
+      if (blocked) throw new Error(blocked);
+      if (!reason.trim()) throw new Error(text.cancelReasonRequired);
+      unit.cancelled = true;
+      this.audit(s, "ยกเลิกหน่วย", unit.id, reason.trim());
     });
   },
   importRows(unitId: string, rows: ImportRow[], reason: string) {
@@ -230,19 +254,31 @@ function rolesName(role: Role) {
     ? "ผู้ดูแลสูงสุดตัวอย่าง"
     : "ผู้รับรองผลตัวอย่าง";
 }
-export function canManage(role: Role, electionId: string) {
+export function canManage(role: Role, electionId: string, store: Store) {
   return (
     role === "super_admin" ||
-    (role === "election_admin" && ["e0", "e2", "e5"].includes(electionId))
+    (role === "election_admin" &&
+      (["e0", "e2", "e5"].includes(electionId) ||
+        store.elections.find((e) => e.id === electionId)?.createdByRole ===
+          role))
   );
 }
-export function inScope(role: Role, electionId: string) {
-  return role === "super_admin" ||
-    role === "results_certifier" ||
-    role === "live_results_viewer" ||
-    role === "helpdesk"
-    ? true
-    : ["e0", "e2", "e5"].includes(electionId);
+export function inScope(role: Role, electionId: string, store: Store) {
+  return role !== "election_admin" || canManage(role, electionId, store);
+}
+export function cancellationBlock(
+  role: Role,
+  election: Election,
+  unit: Unit,
+  store: Store,
+) {
+  if (!canManage(role, election.id, store)) return text.cancelScopeDenied;
+  const state = stateOf(election, unit, store.now);
+  if (state === "cancelled") return text.cancelAlready;
+  if (state === "closed" || state === "announced")
+    return text.cancelClosedDenied;
+  if (state === "open" && role !== "super_admin") return text.cancelOpenDenied;
+  return "";
 }
 export function newUnit(
   electionId: string,

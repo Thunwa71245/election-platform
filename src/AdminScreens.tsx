@@ -54,7 +54,7 @@ export function AdminScreens({
   const [electionFilter, setElectionFilter] = useState("all"),
     [unitFilter, setUnitFilter] = useState("all");
   const section = path.slice(6) || "/";
-  const units = store.units.filter((u) => inScope(role, u.electionId));
+  const units = store.units.filter((u) => inScope(role, u.electionId, store));
   const active = units.filter(
     (u) =>
       stateOf(
@@ -206,7 +206,7 @@ export function AdminScreens({
                     >
                       <option value="all">ทุกการเลือกตั้ง</option>
                       {store.elections
-                        .filter((e) => inScope(role, e.id))
+                        .filter((e) => inScope(role, e.id, store))
                         .map((e) => (
                           <option key={e.id} value={e.id}>
                             {e.title}
@@ -321,13 +321,13 @@ export function AdminScreens({
                 <section className="panel election-actions">
                   <h2>การเลือกตั้งและฉบับร่าง</h2>
                   {store.elections
-                    .filter((e) => inScope(role, e.id))
+                    .filter((e) => inScope(role, e.id, store))
                     .map((e) => (
                       <div className="row-between" key={e.id}>
                         <span>{e.title}</span>
                         <button
                           className="secondary"
-                          disabled={!canManage(role, e.id)}
+                          disabled={!canManage(role, e.id, store)}
                           onClick={() => setEditing(e.id)}
                         >
                           แก้ไข / เพิ่มหน่วย

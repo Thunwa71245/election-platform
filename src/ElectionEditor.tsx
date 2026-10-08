@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { Plus, Copy, Download, ExternalLink } from "lucide-react";
 import { stateOf, type Election, type Role, type Store } from "./model";
-import { canManage, mockRepository, newUnit } from "./mock-repository";
+import {
+  canManage,
+  cancellationBlock,
+  mockRepository,
+  newUnit,
+} from "./mock-repository";
+import { text } from "./text";
 import { Badge, Field, Modal, Notice, download, go } from "./ui";
 function thaiInput(utc: string) {
   return new Date(Date.parse(utc) + 7 * 3600000).toISOString().slice(0, 16);
@@ -50,7 +56,7 @@ function CandidateEditor({
                 el = s.elections.find((e) => e.id === u.electionId)!;
               const status = stateOf(el, u, s.now);
               if (
-                !canManage(role, el.id) ||
+                !canManage(role, el.id, s) ||
                 ["closed", "announced", "cancelled"].includes(status)
               )
                 throw new Error("แก้ข้อมูลในสถานะนี้ไม่ได้");
@@ -168,17 +174,20 @@ export function ElectionEditor({
     [location, setLocation] = useState("ออนไลน์");
   const states = store.units
     .filter((u) => u.electionId === electionId)
-    .map((u) => stateOf(value, u, store.now));
+    .map((u) => stateOf(existing || value, u, store.now));
   const readonly = states.some((s) => ["closed", "announced"].includes(s)),
     locked = readonly || states.includes("open");
   const set = <K extends keyof Election>(key: K, v: Election[K]) =>
     setValue((prev) => ({ ...prev, [key]: v }));
-  const ownUnits = store.units.filter((u) => u.electionId === electionId);
+  const ownUnits = store.units.filter(
+    (u) => u.electionId === electionId && !u.cancelled,
+  );
   return (
     <Modal
       title={existing ? "แก้ไขการเลือกตั้ง" : "สร้างการเลือกตั้ง"}
       close={close}
     >
+      {!existing?.published && <Notice>{text.draftHelp}</Notice>}
       {locked && (
         <Notice>
           {readonly
@@ -191,9 +200,9 @@ export function ElectionEditor({
         onSubmit={(e) => {
           e.preventDefault();
           try {
-            if (existing && !canManage(role, existing.id))
+            if (existing && !canManage(role, existing.id, store))
               throw new Error("ไม่มีสิทธิ์แก้ไขการเลือกตั้งนี้");
-            mockRepository.saveElection(value, existing?.version, reason);
+            mockRepository.saveElection(value, role, existing?.version, reason);
             notify("บันทึกการเลือกตั้งแล้ว");
             close();
           } catch (err) {
@@ -405,11 +414,14 @@ export function UnitDetail({
       unit.close ? thaiInput(unit.close) : "",
     ),
     [reason, setReason] = useState("");
+  const [cancelReason, setCancelReason] = useState(""),
+    [cancelError, setCancelError] = useState("");
   const state = stateOf(election, unit, store.now),
-    manage = canManage(role, unit.electionId),
+    manage = canManage(role, unit.electionId, store),
     locked = !["draft", "future"].includes(state),
     readonly = ["closed", "announced", "cancelled"].includes(state);
   const link = `${location.origin}${location.pathname}#/user/u/${unit.publicId}`;
+  const cancelBlocked = cancellationBlock(role, election, unit, store);
   useEffect(() => {
     let cancelled = false;
     import("qrcode")
@@ -640,25 +652,42 @@ export function UnitDetail({
           >
             บันทึกเวลาหน่วย
           </button>
-          <button
-            className="reset"
-            disabled={state === "open" && role !== "super_admin"}
-            onClick={() => {
-              if (!reason.trim()) {
-                setError("ต้องระบุเหตุผลยกเลิก");
-                return;
-              }
-              mockRepository.update((s) => {
-                s.units.find((u) => u.id === unit.id)!.cancelled = true;
-                mockRepository.audit(s, "ยกเลิกหน่วย", unit.id, reason);
-              });
-              notify("ยกเลิกหน่วยจำลองแล้ว คะแนนเดิมคงอยู่เพื่อทบทวนกติกา");
-            }}
-          >
-            ยกเลิกหน่วย
-          </button>
         </section>
       )}
+      <form
+        className="add-unit"
+        onSubmit={(event) => {
+          event.preventDefault();
+          try {
+            mockRepository.cancelUnit(unit.id, role, cancelReason);
+            setCancelError("");
+            notify(text.cancelSuccess);
+          } catch (err) {
+            setCancelError((err as Error).message);
+          }
+        }}
+      >
+        <h3>ยกเลิกหน่วยลงคะแนน</h3>
+        {cancelBlocked ? (
+          <Notice>{cancelBlocked}</Notice>
+        ) : (
+          <p className="muted">
+            ระบุเหตุผลก่อนยกเลิก ข้อมูลและคะแนนจำลองเดิมจะคงอยู่
+          </p>
+        )}
+        <Field label={text.cancelReason}>
+          <input
+            required
+            disabled={!!cancelBlocked}
+            value={cancelReason}
+            onChange={(event) => setCancelReason(event.target.value)}
+          />
+        </Field>
+        {cancelError && <Notice>{cancelError}</Notice>}
+        <button className="reset" disabled={!!cancelBlocked}>
+          ยกเลิกหน่วย
+        </button>
+      </form>
       {editingCandidate && (
         <CandidateEditor
           unitId={unit.id}

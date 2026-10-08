@@ -1,5 +1,179 @@
 import { test, expect, type Page } from "@playwright/test";
 import ExcelJS from "exceljs";
+
+test("publishing a draft with past closing time does not disable save before persistence", async ({
+  page,
+}) => {
+  await admin(page);
+  await page
+    .locator(".election-actions .row-between")
+    .filter({ hasText: "คณะทำงานใหม่ (ฉบับร่าง)" })
+    .getByRole("button")
+    .click();
+  await page
+    .getByLabel("เวลาเปิด (เวลาไทย)", { exact: true })
+    .fill("2026-10-14T08:00");
+  await page
+    .getByLabel("เวลาปิด (เวลาไทย)", { exact: true })
+    .fill("2026-10-14T17:00");
+  await page
+    .getByRole("checkbox", { name: "เผยแพร่การเลือกตั้ง", exact: true })
+    .check();
+  await expect(
+    page.getByRole("button", { name: "บันทึก", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("checkbox", { name: "เผยแพร่การเลือกตั้ง", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "บันทึก", exact: true }).click();
+  await expect(
+    page
+      .locator("table tbody tr")
+      .filter({ hasText: "คณะทำงานใหม่ (ฉบับร่าง)" }),
+  ).toContainText("ปิดหีบแล้ว");
+});
+
+test("draft election can publish for its creator and cancel an incomplete draft unit", async ({
+  page,
+}) => {
+  await admin(page, "election_admin");
+  await page
+    .getByRole("button", { name: "สร้างการเลือกตั้ง", exact: true })
+    .click();
+  await page
+    .getByLabel("ชื่อการเลือกตั้ง", { exact: true })
+    .fill("การเลือกตั้งสร้างใหม่");
+  await page
+    .getByLabel("เวลาเปิด (เวลาไทย)", { exact: true })
+    .fill("2026-10-15T08:00");
+  await page
+    .getByLabel("เวลาปิด (เวลาไทย)", { exact: true })
+    .fill("2026-10-15T17:00");
+  await page.getByRole("button", { name: "บันทึก", exact: true }).click();
+  const edit = page
+    .locator(".election-actions .row-between")
+    .filter({ hasText: "การเลือกตั้งสร้างใหม่" })
+    .getByRole("button");
+  await expect(edit).toBeEnabled();
+  await edit.click();
+  await expect(
+    page.getByText("ฉบับร่าง — ยังไม่เผยแพร่", { exact: false }),
+  ).toBeVisible();
+  for (const name of ["หน่วยพร้อมใช้", "หน่วยไม่ใช้"]) {
+    await page.getByLabel("ชื่อหน่วย", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "เพิ่มหน่วย", exact: true }).click();
+  }
+  await page
+    .getByRole("dialog", { name: "แก้ไขการเลือกตั้ง", exact: true })
+    .getByLabel("ปิด", { exact: true })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "จัดการ การเลือกตั้งสร้างใหม่ หน่วยไม่ใช้",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("button", { name: "ยกเลิกหน่วย", exact: true }).click();
+  await expect(
+    page.getByLabel("เหตุผลการยกเลิกหน่วย", { exact: true }),
+  ).toBeFocused();
+  await page
+    .getByLabel("เหตุผลการยกเลิกหน่วย", { exact: true })
+    .fill("ไม่ใช้หน่วยนี้ในการสาธิต");
+  await page.getByRole("button", { name: "ยกเลิกหน่วย", exact: true }).click();
+  await expect(page.getByText("หน่วยลงคะแนนนี้ถูกยกเลิกแล้ว")).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "ปิด", exact: true })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "จัดการ การเลือกตั้งสร้างใหม่ หน่วยพร้อมใช้",
+      exact: true,
+    })
+    .click();
+  await page.getByLabel("ชื่อผู้สมัคร", { exact: true }).fill("ผู้สมัครใหม่");
+  await page.getByLabel("ประวัติ", { exact: true }).fill("ประวัติตัวอย่าง");
+  await page.getByLabel("นโยบาย", { exact: true }).fill("นโยบายตัวอย่าง");
+  await page
+    .getByRole("button", { name: "เพิ่มผู้สมัคร", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "ปิด", exact: true })
+    .click();
+  const unitId = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("election-demo-v1")!).units.find(
+        (u: { name: string }) => u.name === "หน่วยพร้อมใช้",
+      ).id,
+  );
+  await page.getByRole("link", { name: "ผู้มีสิทธิ์", exact: true }).click();
+  await page
+    .getByLabel("การเลือกตั้ง / หน่วย", { exact: true })
+    .selectOption(unitId);
+  await page
+    .getByRole("button", { name: "เพิ่มผู้มีสิทธิ์", exact: true })
+    .click();
+  await page.getByLabel("รหัสสมาชิก (Text)", { exact: true }).fill("000128");
+  await page.getByLabel("ชื่อ–สกุล", { exact: true }).fill("สมาชิกใหม่");
+  await page.getByLabel("สังกัด", { exact: true }).fill("ฝ่ายบริการ");
+  await page.getByRole("button", { name: "ตรวจและเพิ่ม", exact: true }).click();
+  await page.getByRole("link", { name: "การเลือกตั้ง", exact: true }).click();
+  await edit.click();
+  await page
+    .getByRole("checkbox", { name: "เผยแพร่การเลือกตั้ง", exact: true })
+    .check();
+  await expect(
+    page.getByRole("button", { name: "บันทึก", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "บันทึก", exact: true }).click();
+  const row = page
+    .locator("table tbody tr")
+    .filter({ hasText: "หน่วยพร้อมใช้" });
+  await expect(row).toContainText("กำลังเปิด");
+  await page
+    .getByRole("button", {
+      name: "จัดการ การเลือกตั้งสร้างใหม่ หน่วยพร้อมใช้",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "ยกเลิกหน่วย", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("หน่วยกำลังเปิดหีบ ยกเลิกได้เฉพาะผู้ดูแลสูงสุด"),
+  ).toBeVisible();
+});
+
+test("super admin cancellation shows the reason field and retains existing mock votes", async ({
+  page,
+}) => {
+  await admin(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .getByRole("button", {
+      name: "จัดการ กรรมการสวัสดิการ ประจำปี 2569 สำนักงานใหญ่",
+      exact: true,
+    })
+    .click();
+  expect(
+    await page
+      .getByRole("dialog")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
+  await page
+    .getByLabel("เหตุผลการยกเลิกหน่วย", { exact: true })
+    .fill("ทดสอบการยกเลิก");
+  await page.getByRole("button", { name: "ยกเลิกหน่วย", exact: true }).click();
+  await expect(page.getByText("หน่วยลงคะแนนนี้ถูกยกเลิกแล้ว")).toBeVisible();
+  const data = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("election-demo-v1")!),
+  );
+  expect(data.units[0].cancelled).toBe(true);
+  expect(data.units[0].ballotCount).toBe(36);
+  expect(data.audit.at(-1).reason).toBe("ทดสอบการยกเลิก");
+});
 test("filter elections and edit candidate biography during open period with audit", async ({
   page,
 }) => {

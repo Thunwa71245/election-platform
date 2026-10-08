@@ -1437,6 +1437,7 @@ code {
   }
   .form-grid {
     gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
   }
   .form-grid .field {
     font-size: 12px;

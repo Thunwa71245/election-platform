@@ -15,6 +15,7 @@ export type Rules = {
 };
 export type Election = Rules & {
   id: string;
+  createdByRole?: Role;
   title: string;
   organizer: string;
   open: string;

@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { canManage, inScope, mockRepository } from "./mock-repository";
+import { text } from "./text";
 import {
   createSeed,
   inspectRows,
@@ -8,6 +10,43 @@ import {
   shouldRefreshSnapshot,
 } from "./model";
 describe("election rules", () => {
+  it("new admin elections remain in scope and cancellation rechecks state, role and reason", () => {
+    let saved = "";
+    vi.stubGlobal("localStorage", {
+      getItem: () => saved || null,
+      setItem: (_key: string, value: string) => {
+        saved = value;
+      },
+    });
+    vi.stubGlobal("window", { dispatchEvent: () => true });
+    try {
+      mockRepository.reset();
+      const s = mockRepository.read();
+      const value = { ...s.elections[5], id: "new-election" };
+      mockRepository.saveElection(value, "election_admin");
+      const own = mockRepository.read();
+      expect(canManage("election_admin", value.id, own)).toBe(true);
+      expect(inScope("election_admin", value.id, own)).toBe(true);
+      expect(canManage("election_admin", "e1", own)).toBe(false);
+      expect(() =>
+        mockRepository.cancelUnit("u6", "election_admin", " "),
+      ).toThrow(text.cancelReasonRequired);
+      expect(() =>
+        mockRepository.cancelUnit("u0", "election_admin", "ทดสอบ"),
+      ).toThrow(text.cancelOpenDenied);
+      expect(() =>
+        mockRepository.cancelUnit("u4", "super_admin", "ทดสอบ"),
+      ).toThrow(text.cancelClosedDenied);
+      const count = s.units[0].ballotCount;
+      mockRepository.cancelUnit("u0", "super_admin", "  ทดสอบ  ");
+      const cancelled = mockRepository.read();
+      expect(cancelled.units[0].cancelled).toBe(true);
+      expect(cancelled.units[0].ballotCount).toBe(count);
+      expect(cancelled.audit.at(-1)?.reason).toBe("ทดสอบ");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("seed gives at most one unit per member in the same election", () => {
     const s = createSeed(),
       pairs = s.eligibility.map(
