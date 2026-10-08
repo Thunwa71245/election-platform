@@ -1,1 +1,81 @@
 # Election Platform
+
+ต้นแบบระบบเลือกตั้งออนไลน์ภายในหน่วยงาน สำหรับสาธิตและทบทวนหน้าจอกับลูกค้า
+
+**ต้นแบบนี้ไม่ใช่ระบบลงคะแนนจริง** ใช้ข้อมูลสมมติ รหัสจำลอง และคะแนนจำลอง ไม่มีฐานข้อมูลหรือการส่งข้อความจริง
+
+## รันในเครื่อง
+
+ใช้ Node.js 22.13+ ในสาย 22 LTS (ไฟล์ `.nvmrc` ระบุ 22) หรือ Node 24 ที่รองรับ ไม่แนะนำ Node 23 ซึ่งพ้นช่วงรองรับและมีปัญหาเมื่อรันชุดทดสอบ Excel
+
+```sh
+npm ci
+npm run dev
+```
+
+เปิด `http://127.0.0.1:5173/` หน้าแรกมีทางเข้าสมาชิกและผู้ดูแลแยกกัน:
+
+- สมาชิก: `/#/user/login`
+- ผู้ดูแล: `/#/admin/login`
+- ลิงก์หน่วย: `/#/user/u/{publicId}` สร้างและคัดลอกได้จากหน้ารายละเอียดหน่วย
+
+ใช้ hash routing เพื่อเปิดลิงก์ตรงและรีเฟรชบน GitHub Pages ได้; ต่างจากเส้นทาง production ใน SPEC ที่จะเป็น `/user` และ `/admin`
+
+## บัญชีตัวอย่าง
+
+สมาชิกกด **ขอรหัสจำลอง** แล้วกรอกรหัส `123456` (ไม่มีการส่งอีเมล/SMS):
+
+| รหัสสมาชิก | สถานการณ์ |
+|---|---|
+| `000123` | มีสิทธิ์ 1 รายการ เลือกได้ 1 คน |
+| `000124` | มีสิทธิ์ 2 รายการ คนละการเลือกตั้ง; อีกใบเลือกได้ 2 คน |
+| `000125` | ใช้สิทธิ์แล้ว |
+| `000126` | ไม่มีสิทธิ์ |
+| `000127` | ไม่มีช่องทางติดต่อ ต้องใช้รหัสสำรองจำลองจาก helpdesk |
+| `000901` | หน่วยเล็ก 4 คน |
+| `000902` | หน่วยยกเลิก |
+| `000903` | หน่วยไม่มีผู้ลงคะแนน (ปิดแล้ว) |
+| `000904` | ยังไม่เปิดหีบ |
+| `000905` | ปิดหีบแล้ว รอประกาศ/คะแนนเสมอ |
+| `000906` | ประกาศแล้ว ปี 2568 |
+| `000907` | ฉบับร่าง ไม่แสดงในรายการสมาชิก |
+
+ผู้ดูแลเลือกบทบาทที่หน้า login ใช้รหัสผ่าน `demo123` ทุกบทบาท: super_admin, election_admin, live_results_viewer, results_certifier, helpdesk
+election_admin ตัวอย่างดูแล e0/e2/e5; บทบาทอื่นที่เกี่ยวข้องได้รับขอบเขตทุกการเลือกตั้งจำลอง ผู้ดูคะแนนสดไม่เห็นรายชื่อสถานะรายบุคคล
+
+ปุ่ม **รีเซ็ตข้อมูลตัวอย่าง** คืนข้อมูลเริ่มต้นและออกจาก session ในแท็บนี้ การเปลี่ยนแปลงจำลองอยู่เฉพาะเบราว์เซอร์/เว็บไซต์ต้นทางเดียวกัน อีกเครื่องมีชุดสาธิตของตัวเอง
+สถานะใช้สิทธิ์และคะแนนรวมจำลองใช้ localStorage; ไม่เก็บตัวเลือกของสมาชิกหรือบัตรที่เชื่อมกับสมาชิก session ทั้งสองฝั่งแยก key ใน sessionStorage การควบคุมสิทธิ์ทั้งหมดเป็นการจำลอง ไม่ใช่ security boundary
+
+เวลาจำลองเริ่มที่ 15 ต.ค. 2569 10:00 น. (UTC ในข้อมูล); ผู้ดูแลสูงสุดสลับเปิด/ปิดในแถบทดสอบได้ เครือข่ายจำลองเลือกปกติ/ขาดก่อนบันทึก/ขาดหลังบันทึกเพื่อทดลองกู้สถานะ
+
+## ตรวจและ build
+
+```sh
+npm run lint
+npm run typecheck
+npm test
+npx playwright install chromium
+npm run test:e2e
+npm run build
+npm run preview
+```
+
+`dist/` คือไฟล์ static สำหรับเผยแพร่ ExcelJS โหลดเฉพาะตอนใช้ Excel; QR และ fonts อยู่ใน bundle ไม่มี analytics หรือ third-party script ในหน้าสมาชิก
+ExcelJS ใช้ override UUID 11.1.1 เพื่อเลี่ยง advisory ของ dependency เดิม; lockfile บันทึกชุดที่ทดสอบไว้แล้ว
+
+## เผยแพร่ด้วย GitHub Pages
+
+เตรียม workflow ที่ [.github/workflows/pages.yml](.github/workflows/pages.yml) แล้ว รัน lint/typecheck/unit/E2E/build ก่อน deploy บน push ไป `main` หรือ `dev-election-stage-1` หรือเรียก workflow_dispatch
+
+เมื่อกำหนด repository ปลายทางและ push โค้ดแล้ว ตั้ง Settings → Pages → Source เป็น **GitHub Actions** ตาม [เอกสาร GitHub](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) Vite ใช้ relative base สำหรับ static assets ตาม [แนวทาง deploy Vite](https://vite.dev/guide/static-deploy.html#github-pages)
+
+ณ งานนี้ยังไม่มี remote/URL repository ปลายทาง จึงยังไม่มี URL deploy ที่รับรองว่าออนไลน์ อย่าใช้ชื่อเว็บไซต์ตัวอย่างเป็นลิงก์จริง
+
+## เอกสาร
+
+- [ข้อกำหนด](docs/SPEC.md), [พรอมป์รายระยะ](docs/CODEX_PROMPTS.md), [ผลตรวจ P0](docs/repo-audit.md)
+- [การตัดสินใจ/สมมติฐาน](docs/decisions.md)
+- [สคริปต์สาธิตกับลูกค้า](docs/prototype-review-script.md)
+- [รายงาน P1 และข้อจำกัด](docs/p1-report.md)
+
+ยังไม่เริ่ม P2–P6 ไม่มี server authorization, DB transaction, OTP จริง หรือมาตรการรับรองความลับสำหรับคะแนนจริง
